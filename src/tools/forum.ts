@@ -376,15 +376,23 @@ export const updateForumPostHandler: ToolHandler = async (args, { client }) => {
       if (parent && parent.type === ChannelType.GuildForum) {
         const forumChannel = parent as ForumChannel;
         const availableTags = forumChannel.availableTags;
-        const tagIds = tags.map(tagInput => {
-          // Accept either tag name or tag ID
+        const resolved: string[] = [];
+        const invalid: string[] = [];
+        for (const tagInput of tags) {
           const byName = availableTags.find(t => t.name === tagInput);
-          if (byName) return byName.id;
+          if (byName) { resolved.push(byName.id); continue; }
           const byId = availableTags.find(t => t.id === tagInput);
-          if (byId) return byId.id;
-          return null;
-        }).filter((id): id is string => id !== null);
-        editOptions.appliedTags = tagIds;
+          if (byId) { resolved.push(byId.id); continue; }
+          invalid.push(tagInput);
+        }
+        if (invalid.length > 0) {
+          const validNames = availableTags.map(t => t.name).join(', ');
+          return {
+            content: [{ type: "text", text: `Unknown tag(s): ${invalid.join(', ')}. Available tags: ${validNames}` }],
+            isError: true
+          };
+        }
+        editOptions.appliedTags = resolved;
       } else {
         return {
           content: [{ type: "text", text: `Thread's parent channel is not a forum channel. Tags can only be applied to forum posts.` }],
