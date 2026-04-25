@@ -8,6 +8,8 @@ import { Client, GatewayIntentBits } from 'discord.js';
 import { config as dotenvConfig } from 'dotenv';
 import express, { Request, Response } from 'express';
 import { info, Level, setLevel, warning } from './notifications.js';
+
+process.stderr.write(`[startup] DISCORD_TOKEN set: ${!!process.env.DISCORD_TOKEN}, keys: ${Object.keys(process.env).filter(k => k.startsWith('DISCORD')).join(',')}\n`);
 import * as schemas from './schemas.js';
 import * as handlers from './tools/tools.js';
 import { createToolContext } from './tools/tools.js';
