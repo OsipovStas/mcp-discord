@@ -136,7 +136,29 @@ function createDiscordClient(token?: string) {
     }, 10000);
     client.on('ready', () => {
         logClientState("on ready event");
+
+        // Start watching a channel if WATCH_CHANNEL_ID is set
+        const watchChannelId = process.env.WATCH_CHANNEL_ID;
+        if (watchChannelId) {
+            process.stderr.write(`Watching channel ${watchChannelId} for messages\n`);
+        }
     });
+
+    // Auto-reply when a message is received in the watched channel
+    client.on('messageCreate', async (message) => {
+        const watchChannelId = process.env.WATCH_CHANNEL_ID;
+        if (!watchChannelId) return;
+        if (message.channelId !== watchChannelId) return;
+        if (message.author.bot) return; // ignore bot messages
+
+        try {
+            await message.channel.send(`✅ Получил сообщение от ${message.author.username}: "${message.content}"`);
+            process.stderr.write(`Auto-replied to message in channel ${watchChannelId}\n`);
+        } catch (err) {
+            process.stderr.write(`Failed to auto-reply: ${String(err)}\n`);
+        }
+    });
+
     client.on('disconnect', () => {
         logClientState("on disconnect event");
         if (clientStatusInterval) {
