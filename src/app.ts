@@ -193,7 +193,6 @@ const config = {
 };
 
 const discord = createDiscordClient(config.DISCORD_TOKEN);
-const server = createMcpServer(discord);
 
 const app = express();
 app.use(express.json());
@@ -235,8 +234,11 @@ const mcpPostHandler = async (req: Request, res: Response) => {
                 }
             };
 
+            // Create a new MCP server instance per session to avoid transport reuse errors
+            const sessionServer = createMcpServer(discord);
+
             // Connect the transport to the MCP server before handling the request
-            await server.connect(transport);
+            await sessionServer.connect(transport);
 
             await transport.handleRequest(req, res, req.body);
             return;
