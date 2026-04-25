@@ -342,7 +342,7 @@ if (config.TRANSPORT.toLowerCase() === 'http') {
 } else {
     // Stdio transport
     const transport = new StdioServerTransport();
-    await server.connect(transport);
+    await createMcpServer(discord).connect(transport);
     process.stderr.write('MCP Stdio Server started. Awaiting messages...\n');
 
 }
