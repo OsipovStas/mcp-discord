@@ -60,7 +60,7 @@ export const loginHandler: ToolHandler = async (args, context) => {
         }
         
         // Use token from args if provided, otherwise fall back to the client's token
-        const token = args.token || context.client.token;
+        const token = args.token || context.client.token || process.env.DISCORD_TOKEN;
         
         // Check if we have a token to use
         if (!token) {
