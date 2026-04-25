@@ -219,6 +219,28 @@ const discord = createDiscordClient(config.DISCORD_TOKEN);
 const app = express();
 app.use(express.json());
 
+// Bearer token authentication middleware
+// Set MCP_API_KEY environment variable to enable auth protection
+const MCP_API_KEY = process.env.MCP_API_KEY;
+if (MCP_API_KEY) {
+    process.stderr.write('MCP API key authentication is enabled\n');
+    app.use('/mcp', (req, res, next) => {
+        const authHeader = req.headers['authorization'];
+        const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        if (token !== MCP_API_KEY) {
+            res.status(401).json({
+                jsonrpc: '2.0',
+                error: { code: -32001, message: 'Unauthorized: invalid or missing API key' },
+                id: null
+            });
+            return;
+        }
+        next();
+    });
+} else {
+    process.stderr.write('Warning: MCP_API_KEY is not set, server is unprotected\n');
+}
+
 // region MCP Streamable HTTP Transport Handlers
 const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
 const mcpPostHandler = async (req: Request, res: Response) => {
