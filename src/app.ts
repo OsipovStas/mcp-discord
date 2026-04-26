@@ -144,19 +144,35 @@ function createDiscordClient(token?: string) {
         }
     });
 
-    // Auto-reply when a message is received in the watched channel
+    // Trigger the Discord Joke Relay managed agent when a message is received in the watched channel
     client.on('messageCreate', async (message) => {
         const watchChannelId = process.env.WATCH_CHANNEL_ID;
         if (!watchChannelId) return;
         if (message.channelId !== watchChannelId) return;
         if (message.author.bot) return; // ignore bot messages
 
-        try {
-            await message.channel.send(`✅ Получил сообщение от ${message.author.username}: "${message.content}"`);
-            process.stderr.write(`Auto-replied to message in channel ${watchChannelId}\n`);
-        } catch (err) {
-            process.stderr.write(`Failed to auto-reply: ${String(err)}\n`);
+        const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
+        const agentId         = process.env.AGENT_ID;
+        const vaultId         = process.env.VAULT_ID;
+        const envId           = process.env.ENV_ID;
+
+        if (!anthropicApiKey || !agentId || !vaultId || !envId) {
+            process.stderr.write('Missing Anthropic env vars (ANTHROPIC_API_KEY, AGENT_ID, VAULT_ID, ENV_ID) — skipping agent trigger\n');
+            return;
         }
+
+        process.stderr.write(`Triggering joke agent for message: "${message.content}"\n`);
+
+        // Fire-and-forget — don't block the event handler
+        triggerJokeAgent({
+            userMessage: `From @${message.author.username}: ${message.content}`,
+            anthropicApiKey,
+            agentId,
+            vaultId,
+            envId,
+        }).catch((err) => {
+            process.stderr.write(`Joke agent error: ${String(err)}\n`);
+        });
     });
 
     client.on('disconnect', () => {
@@ -168,6 +184,87 @@ function createDiscordClient(token?: string) {
     });
     return client;
 }
+
+// ---------------------------------------------------------------------------
+// Anthropic Managed Agents — Sessions API helper
+// ---------------------------------------------------------------------------
+
+interface JokeAgentParams {
+    userMessage: string;
+    anthropicApiKey: string;
+    agentId: string;
+    vaultId: string;
+    envId: string;
+}
+
+async function triggerJokeAgent(params: JokeAgentParams): Promise<void> {
+    const { userMessage, anthropicApiKey, agentId, vaultId, envId } = params;
+
+    const headers: Record<string, string> = {
+        'x-api-key':         anthropicApiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta':    'managed-agents-2026-04-01',
+        'content-type':      'application/json',
+    };
+
+    const post = async (path: string, body: unknown): Promise<unknown> => {
+        const res = await fetch(`https://api.anthropic.com${path}`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`POST ${path} → ${res.status}: ${text}`);
+        }
+        return res.json();
+    };
+
+    const get = async (path: string): Promise<Record<string, unknown>> => {
+        const res = await fetch(`https://api.anthropic.com${path}`, { headers });
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`GET ${path} → ${res.status}: ${text}`);
+        }
+        return res.json() as Promise<Record<string, unknown>>;
+    };
+
+    // 1. Create session
+    const session = await post('/v1/sessions', {
+        agent:          agentId,
+        environment_id: envId,
+        vault_ids:      [vaultId],
+        title:          `joke: ${userMessage.slice(0, 60)}`,
+    }) as Record<string, unknown>;
+    const sessionId = session['id'] as string;
+    process.stderr.write(`Joke agent session created: ${sessionId}\n`);
+
+    // 2. Send user message
+    await post(`/v1/sessions/${sessionId}/events`, {
+        events: [{ type: 'user.message', content: [{ type: 'text', text: userMessage }] }],
+    });
+
+    // 3. Poll until idle
+    const pollTimeout = 120_000;
+    const pollInterval = 3_000;
+    const deadline = Date.now() + pollTimeout;
+    while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, pollInterval));
+        const s = await get(`/v1/sessions/${sessionId}`);
+        const status = s['status'] as string;
+        process.stderr.write(`  joke agent status: ${status}\n`);
+        if (status === 'idle') {
+            process.stderr.write(`Joke agent done for session ${sessionId}\n`);
+            return;
+        }
+        if (['failed', 'error', 'cancelled', 'archived'].includes(status)) {
+            throw new Error(`Session ${sessionId} ended with status: ${status}`);
+        }
+    }
+    throw new Error(`Joke agent session ${sessionId} timed out after ${pollTimeout / 1000}s`);
+}
+
+// ---------------------------------------------------------------------------
 
 // Configuration from command-line arguments or environment variables
 const config = {
